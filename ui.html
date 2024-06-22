@@ -1,0 +1,42 @@
+<button id="extractButton">Extract Text</button>
+<input type="text" id="excludedComponentsInput" placeholder="Enter node names to exclude, separated by commas">
+<input type="text" id="excludedSectionsInput" placeholder="Enter section names to exclude, separated by commas">
+<textarea id="hiddenTextarea" style="position: absolute; left: -9999px;"></textarea>
+<p id="status"></p>
+
+<script>
+document.getElementById('extractButton').onclick = () => {
+  const excludedComponentsInput = document.getElementById('excludedComponentsInput').value;
+  const excludedSectionsInput = document.getElementById('excludedSectionsInput').value;
+  const excludedComponents = excludedComponentsInput.split(',').map(name => name.trim()); // Split by comma and trim whitespace
+  const excludedSections = excludedSectionsInput.length > 0 ? excludedSectionsInput.split(',').map(name => name.trim()) : []; // Split by comma and trim whitespace, ensure it's initialized
+  parent.postMessage({ pluginMessage: { type: 'extract-text', excludedComponents, excludedSections } }, '*');
+};
+
+onmessage = (event) => {
+  console.log("Message received in UI:", event.data.pluginMessage);
+  if (event.data.pluginMessage.type === 'copy-text') {
+    const text = event.data.pluginMessage.text;
+    const textArea = document.getElementById('hiddenTextarea');
+    textArea.value = text;
+    textArea.select();
+    
+    try {
+      const successful = document.execCommand('copy');
+      if (successful) {
+        console.log("Text copied to clipboard");
+        document.getElementById('status').textContent = 'Text copied to clipboard!';
+      } else {
+        throw new Error('Copy command was unsuccessful');
+      }
+    } catch (err) {
+      console.error('Failed to copy text: ', err);
+      document.getElementById('status').textContent = 'Failed to copy text.';
+    }
+    
+    setTimeout(() => {
+      parent.postMessage({ pluginMessage: { type: 'close' } }, '*');
+    }, 2000);
+  }
+};
+</script>
