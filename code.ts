@@ -1,127 +1,101 @@
-// Utility functions
-function traverseNode(
-  node: SceneNode,
-  callback: (node: SceneNode, sectionName?: string) => void,
-  excludedNames: string[],
-  excludedSections: string[],
-  currentSection?: string
-) {
-  // Check if the current node or its section is excluded
-  if (excludedNames.indexOf(node.name) !== -1 || isNodeInSection(node, excludedSections)) {
-    return; // Skip this node and its children
-  }
+// Main code for the plugin
+figma.showUI(__html__, { width: 300, height: 400 });
 
-  // If current node is a frame, section, or instance and has children, it's the start of a new section
-  if ((node.type === 'FRAME' || node.type === 'SECTION' || node.type === 'INSTANCE') && !currentSection) {
-    currentSection = node.name;
-  }
+figma.ui.onmessage = async (msg) => {
+  if (msg.type === 'extract-text') {
+    try {
+      const frameNodes = findFramesByNames(figma.currentPage, msg.frameNames);
 
-  // Process current node if it's not excluded
-  callback(node, currentSection);
+      if (frameNodes.length === 0) {
+        figma.ui.postMessage({ type: 'error', message: 'No matching frames found.' });
+        return;
+      }
 
-  // Check if node has children
-  if ('children' in node) {
-    for (const child of node.children) {
-      traverseNode(child, callback, excludedNames, excludedSections, currentSection);
+      let extractedText = '';
+
+      for (const frame of frameNodes) {
+        extractedText += `${frame.name}\n\n`;
+        extractedText += await extractTextFromFrame(frame, msg.skipComponentInstances);
+        extractedText += '\n\n';
+      }
+
+      figma.ui.postMessage({ type: 'extracted-text', text: extractedText });
+    } catch (error) {
+      console.error('Error in text extraction:', error);
+      figma.ui.postMessage({ 
+        type: 'error', 
+        message: 'An error occurred during text extraction. Please check the plugin console for details.' 
+      });
     }
   }
+};
+
+function isFrameNode(node: BaseNode): node is FrameNode {
+  return node.type === 'FRAME';
 }
 
-function isTextNode(node: SceneNode): node is TextNode {
-  return node.type === 'TEXT';
-}
+function findFramesByNames(rootNode: BaseNode & ChildrenMixin, frameNames: string[]): FrameNode[] {
+  const frames: FrameNode[] = [];
+  const queue: (BaseNode & ChildrenMixin)[] = [rootNode];
 
-function isInstanceNode(node: SceneNode): node is InstanceNode {
-  return node.type === 'INSTANCE';
-}
+  while (queue.length > 0) {
+    const node = queue.shift()!;
 
-function getFirstLevelNodes(page: PageNode): SceneNode[] {
-  // Filter frames and sections
-  return page.children.filter(child => child.type === 'FRAME' || child.type === 'SECTION' || child.type === 'INSTANCE');
-}
-
-function isNodeInSection(node: SceneNode, excludedSections: string[]): boolean {
-  for (const section of excludedSections) {
-    if (node.name.startsWith(section)) {
-      return true;
+    if (isFrameNode(node) && frameNames.indexOf(node.name) !== -1) {
+      frames.push(node);
     }
+
+    if ('children' in node) {
+      for (const child of node.children) {
+        if (isFrameNode(child)) {
+          if (frameNames.indexOf(child.name) !== -1) {
+            frames.push(child);
+          }
+          if ('children' in child) {
+            queue.push(child);
+          }
+        } else if ('children' in child) {
+          queue.push(child as BaseNode & ChildrenMixin);
+        }
+      }
+    }
+  }
+
+  return frames;
+}
+
+async function extractTextFromFrame(frame: FrameNode, skipComponentInstances: string[]): Promise<string> {
+  let text = '';
+
+  for (const node of frame.findAll()) {
+    if (node.type === 'TEXT' && node.visible && !isInHiddenLayer(node)) {
+      if (isInSkippedComponentInstance(node, skipComponentInstances)) continue;
+
+      // Simply extract the text without loading fonts
+      text += node.characters + '\n';
+    }
+  }
+
+  return text;
+}
+
+function isInHiddenLayer(node: SceneNode): boolean {
+  let parent = node.parent;
+  while (parent) {
+    if ('visible' in parent && !parent.visible) return true;
+    parent = parent.parent;
   }
   return false;
 }
 
-figma.showUI(__html__, { width: 500, height: 500 });
-
-figma.ui.onmessage = async (msg) => {
-  if (msg.type === 'extract-text') {
-    const excludedComponents = msg.excludedComponents || [];
-    const excludedSections = msg.excludedSections || [];
-    let output = '';
-
-    const currentPage = figma.currentPage;
-    let pageText = `${currentPage.name}\n\n`;
-
-    // Get first-level frames and sections
-    const firstLevelNodes = getFirstLevelNodes(currentPage);
-    for (const node of firstLevelNodes) {
-      let skipNode = false;
-
-      // Check if node name is in excludedComponents
-      if (excludedComponents.indexOf(node.name) !== -1) {
-        skipNode = true;
-      }
-
-      // Check if node is in excludedSections
-      if (!skipNode && isNodeInSection(node, excludedSections)) {
-        skipNode = true;
-      }
-
-      if (skipNode) {
-        continue; // Skip this node
-      }
-
-      traverseNode(node, (childNode, sectionName) => {
-        if (!childNode.visible) return;
-
-        if (isTextNode(childNode)) {
-          if (sectionName) {
-            pageText += `${childNode.type}: ${sectionName}\n`;
-          }
-          pageText += `${childNode.characters}\n`;
-        } else if (isInstanceNode(childNode)) {
-          (async () => {
-            const mainComponent = await childNode.getMainComponentAsync();
-            let skipComponent = false;
-
-            // Check if main component name is in excludedComponents
-            if (mainComponent && excludedComponents.indexOf(mainComponent.name) !== -1) {
-              skipComponent = true;
-            }
-
-            // Check if main component is in excludedSections
-            if (!skipComponent && mainComponent && isNodeInSection(mainComponent, excludedSections)) {
-              skipComponent = true;
-            }
-
-            if (!skipComponent) {
-              childNode.findAllWithCriteria({ types: ['TEXT'] }).forEach((textNode: TextNode) => {
-                if (textNode.visible) {
-                  if (sectionName) {
-                    pageText += `${childNode.type}: ${sectionName}\n`;
-                  }
-                  pageText += `${textNode.characters}\n`;
-                }
-              });
-            }
-          })();
-        }
-      }, excludedComponents, excludedSections);
-      pageText += '\n';
+function isInSkippedComponentInstance(node: SceneNode, skipComponentInstances: string[]): boolean {
+  let current: BaseNode | null = node;
+  while (current) {
+    const parent = current.parent as BaseNode | null;
+    if (parent && (parent.type === 'COMPONENT' || parent.type === 'INSTANCE') && parent.name) {
+      if (skipComponentInstances.findIndex(name => name === parent.name) !== -1) return true;
     }
-
-    output = pageText;
-
-    figma.ui.postMessage({ type: 'copy-text', text: output });
-  } else if (msg.type === 'close') {
-    figma.closePlugin();
+    current = parent;
   }
-};
+  return false;
+}
