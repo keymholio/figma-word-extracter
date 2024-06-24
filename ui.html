@@ -17,6 +17,10 @@
   }
 </style>
 
+<style>
+  /* ... (keep your existing styles) ... */
+</style>
+
 <input id="frame-names" type="text" placeholder="Frame names to extract (comma-separated)">
 <input id="skip-instances" type="text" placeholder="Component instances to skip (comma-separated)">
 <button id="extract-button">Extract Text</button>
@@ -25,6 +29,11 @@
 
 <script>
 document.getElementById('extract-button').onclick = () => {
+  const button = document.getElementById('extract-button');
+  button.disabled = true;
+  document.getElementById('status').textContent = 'Extracting text...';
+  document.getElementById('output').value = '';
+  
   const frameNames = document.getElementById('frame-names').value
     .split(',')
     .map(s => s.trim())
@@ -34,6 +43,8 @@ document.getElementById('extract-button').onclick = () => {
     .split(',')
     .map(s => s.trim())
     .filter(s => s !== '');
+
+  console.log('Sending message to plugin:', { frameNames, skipInstances });
 
   parent.postMessage({ 
     pluginMessage: { 
@@ -45,13 +56,20 @@ document.getElementById('extract-button').onclick = () => {
 };
 
 onmessage = (event) => {
+  console.log('Received message from plugin:', event.data.pluginMessage);
+  const button = document.getElementById('extract-button');
+  button.disabled = false;
+
   const msg = event.data.pluginMessage;
   if (msg.type === 'extracted-text') {
+    console.log('Updating textarea with extracted text');
     document.getElementById('output').value = msg.text;
-    document.getElementById('status').textContent = 'Text extracted and copied!';
-    navigator.clipboard.writeText(msg.text);
+    document.getElementById('status').textContent = 'Text extracted successfully!';
   } else if (msg.type === 'error') {
+    console.error('Received error:', msg.message);
     document.getElementById('status').textContent = msg.message;
+  } else {
+    console.warn('Received unknown message type:', msg.type);
   }
 };
 </script>
