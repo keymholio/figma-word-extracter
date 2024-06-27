@@ -34,10 +34,8 @@ async function extractTextFromFrame(frame: FrameNode, skipComponentInstances: st
   const processedTextNodes = new Set<string>();
 
   function processNode(node: SceneNode, isTopLevel: boolean = true): void {
-    console.log(`Processing node: ${node.name}, type: ${node.type}, isTopLevel: ${isTopLevel}`);
-    
+  
     if (!node.visible) {
-      console.log(`Skipping hidden node: ${node.name}`);
       return;
     }
 
@@ -45,8 +43,7 @@ async function extractTextFromFrame(frame: FrameNode, skipComponentInstances: st
       const instanceId = node.id;
       if (!processedInstances.has(instanceId)) {
         if (isTopLevel) {
-          console.log(`Adding top-level component: ${node.name}`);
-          text += `[Component: ${node.name}]\n`;
+          text += `\n[Component: ${node.name}]\n`;
           processedInstances.add(instanceId);
         }
         // Process all children of this instance, but mark them as not top-level
@@ -57,6 +54,10 @@ async function extractTextFromFrame(frame: FrameNode, skipComponentInstances: st
         console.log(`Skipping processed instance: ${node.name}`);
       }
       return;
+    }
+
+    if (node.type === 'RECTANGLE') {
+      console.log (node);
     }
 
     if (node.type === 'TEXT') {
@@ -70,7 +71,7 @@ async function extractTextFromFrame(frame: FrameNode, skipComponentInstances: st
       return;
     }
 
-    // Recursively process children for non-text, non-instance nodes
+    // Recursively process children for non-text, non-instance, non-image nodes
     if ('children' in node) {
       for (const child of node.children) {
         processNode(child, isTopLevel);
